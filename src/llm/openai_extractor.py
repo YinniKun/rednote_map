@@ -1,6 +1,6 @@
 """
 OpenAI / Gemini / Custom LLM implementation for extracting location info from Xiaohongshu notes.
-Supports multi-place extraction (1 to 5 spots per note).
+Supports multi-place extraction (1 to 5 spots per note) with travel-aware destination disambiguation.
 """
 
 import json
@@ -11,27 +11,30 @@ from src.models.place import NoteData, ExtractedLocation
 from src.llm.base import BaseLLMExtractor
 
 
-MULTI_EXTRACTION_SYSTEM_PROMPT = """你是一个专业的旅游与美食地图助手。你的任务是从用户给出的「小红书」笔记标题、正文、标签和定位信息中，准确提取出笔记中【推荐或提到的所有具体地点/店名/景点/机构】（如果只有1个则提取1个，如果有多个合集推荐，最多提取最核心的 5 个）。
+MULTI_EXTRACTION_SYSTEM_PROMPT = """你是一个高精度的全球旅游与美食地图专家。你的任务是从用户给出的「小红书」笔记标题、正文、标签和定位信息中，准确提取出笔记中【推荐或提到的具体打卡地点/店名/餐厅/景点/酒吧/项目】。
 
 请输出包含 "places" 数组的 JSON 对象，每个地点元素符合以下结构：
 {
   "places": [
     {
-      "place_name": "具体店名或景点名称，如：Elora Town / BRUT CAFE / Trans-Canada Trail",
-      "city_or_district": "提及的城市、区县或国家，如：Canada Toronto / 上海市静安区",
+      "place_name": "具体店名或景点完整全称，如：Founding Fathers Pub / Trans-Canada Trail / 武康大楼",
+      "city_or_district": "实际目的地城市、州/省或国家，如：Buffalo, NY, USA / Toronto, Canada / 上海市静安区",
       "category": "分类，例如：Cafe / Restaurant / Sightseeing / Park / Bakery / Bar / Hotel / Shopping / Other",
-      "search_query": "适合在 Google Maps 搜索的最佳关键词组合（英文/中文+城市名），如：Trans-Canada Trail Ontario Canada 或 Elora Town Ontario",
+      "search_query": "适合在 Google Maps 搜索的最佳关键词组合（完整店名+目的地城市/州/国），如：Founding Fathers Pub Buffalo NY 或 Trans-Canada Trail Ontario",
       "summary": "用1-2句话简要总结笔记中对该地点的核心推荐理由或亮点特色",
       "confidence": 0.95
     }
   ]
 }
 
-注意规则：
-1. place_name 必须尽量精简准确，不要包含无用修饰词。
-2. search_query 要包含英文或中文的标准名称 + 城市/地区，以便在 Google Maps 准确定位。
-3. 如果笔记是多地点合集（如“多伦多周边3个小镇”、“上海5家咖啡馆”），请依次提取各个具体的地点名称。
-4. 只返回合法的 JSON 对象。
+⚠️ 极其关键的提取规则：
+1. **完整名称原则**：必须提取完整精确的店铺或景点全称（如 "Founding Fathers Pub"），严禁截断词尾（如绝对不能提取为 "Founding" 或 "Pub"）。
+2. **目的地 vs 出发地区分（跨国/自驾/旅行笔记）**：
+   - 如果笔记描述的是自驾或跨城/跨国旅行（例如“从多伦多自驾去美国水牛城一日游”），提取的城市与国家必须是**目的地**（Buffalo, NY, USA），绝对不能把出发地（多伦多/Markham）或博主主页标签（如“#生活在多伦多”）误判为目的地！
+3. **search_query 构造**：
+   - 必须是 `"[完整店名/景点名] [目的地城市/州/国家]"`, 方便 Google Maps 精确检索。
+   - 严禁包含“自驾”、“一日游”、“打卡”等无关修饰词。
+4. **多地点提取**：如果笔记推荐了多个具体的店铺/景点，请依次提取核心打卡点（最多 5 个）。
 """
 
 
@@ -73,8 +76,8 @@ class OpenAIExtractor(BaseLLMExtractor):
 标题: {note.title}
 定位/POI: {note.poi_name or '无'}
 标签: {', '.join(note.tags) if note.tags else '无'}
-正文/分享文本:
-{note.desc[:2000]}
+正文内容/分享文本:
+{note.desc[:2500]}
 """
 
         try:
@@ -85,8 +88,8 @@ class OpenAIExtractor(BaseLLMExtractor):
                     {"role": "user", "content": user_content},
                 ],
                 response_format={"type": "json_object"} if "gpt" in self.model.lower() else None,
-                temperature=0.2,
-                max_tokens=1000,
+                temperature=0.1,
+                max_tokens=1200,
             )
 
             raw_json = response.choices[0].message.content.strip()
@@ -102,7 +105,7 @@ class OpenAIExtractor(BaseLLMExtractor):
             results = []
             for item in places_list:
                 place_name = item.get("place_name", "").strip()
-                if not place_name:
+                if not place_name or len(place_name) < 2:
                     continue
                 results.append(
                     ExtractedLocation(
@@ -124,23 +127,33 @@ class OpenAIExtractor(BaseLLMExtractor):
         """Rule-based heuristic fallback if LLM API key is not configured or fails."""
         place_name = note.poi_name or note.title or "Recommended Spot"
 
-        # Try regex pattern matching for location names in text (e.g. 📍Trans-Canada Trail)
-        location_match = re.search(r"📍\s*([^\s\n\r,，!！]+)", note.desc + " " + note.title)
+        # Match location string after 📍 until colon/newline/punctuation (allow spaces inside English names)
+        location_match = re.search(r"📍\s*([^\n\r：:，,！!?？;；]+)", note.desc + " " + note.title)
         if location_match:
-            place_name = location_match.group(1).strip()
+            candidate = location_match.group(1).strip()
+            # Clean trailing descriptive text after space if separated by punctuation
+            candidate = re.sub(r"\s*[\(（\[【].*", "", candidate).strip()
+            if candidate:
+                place_name = candidate
 
-        city_hint = ""
-        for tag in note.tags + [note.title, note.desc]:
-            if any(c in tag for c in ["多伦多", "上海", "北京", "广州", "深圳", "东京", "京都", "温哥华"]):
-                city_hint = tag
+        # Detect destination city vs blogger home city tags
+        text_corpus = note.title + " " + note.desc
+        destination_city = ""
+        # Check explicit destination hints first
+        for city in ["水牛城", "Buffalo", "多伦多", "Toronto", "温哥华", "Vancouver", "纽约", "New York", "上海", "北京", "东京", "Tokyo"]:
+            if city in text_corpus:
+                destination_city = city
                 break
 
-        search_query = f"{place_name} {city_hint}".strip()
+        if not destination_city and note.tags:
+            destination_city = note.tags[0]
+
+        search_query = f"{place_name} {destination_city}".strip()
         summary = note.desc[:120] + "..." if len(note.desc) > 120 else (note.desc or note.title)
 
         return ExtractedLocation(
             place_name=place_name,
-            city_or_district=city_hint or None,
+            city_or_district=destination_city or None,
             category="Attraction",
             search_query=search_query,
             summary=summary or "Spot extracted from Xiaohongshu note.",
