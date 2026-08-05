@@ -3,6 +3,7 @@ Base class interface for LLM Location Extractors.
 """
 
 from abc import ABC, abstractmethod
+from typing import List
 from src.models.place import NoteData, ExtractedLocation
 
 
@@ -11,10 +12,10 @@ class BaseLLMExtractor(ABC):
 
     @abstractmethod
     async def extract_location(self, note: NoteData) -> ExtractedLocation:
-        """
-        Analyze Xiaohongshu note content and extract place details.
+        """Analyze Xiaohongshu note content and extract primary place detail."""
+        pass
 
-        :param note: NoteData containing note title, description, tags, POI.
-        :return: ExtractedLocation containing place_name, city, search_query, category, summary.
-        """
+    @abstractmethod
+    async def extract_locations(self, note: NoteData) -> List[ExtractedLocation]:
+        """Analyze Xiaohongshu note content and extract ALL mentioned places (1 to 5 spots)."""
         pass

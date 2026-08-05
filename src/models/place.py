@@ -12,6 +12,7 @@ class NoteData(BaseModel):
     note_id: str
     title: str = ""
     desc: str = ""
+    raw_share_text: Optional[str] = None
     author: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     poi_name: Optional[str] = None  # Location tag attached directly in Xiaohongshu if any
@@ -47,3 +48,9 @@ class ProcessedMapItem(BaseModel):
     google_place: Optional[GooglePlaceDetails] = None
     pinned_status: str = "Pending"  # "Success", "Failed", "Skipped", etc.
     pinned_info: Optional[str] = None
+
+
+class ProcessedResult(BaseModel):
+    """Result containing all processed spots from a single Xiaohongshu note."""
+    note: NoteData
+    items: List[ProcessedMapItem] = Field(default_factory=list)

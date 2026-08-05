@@ -21,14 +21,16 @@ async def test_pipeline_end_to_end():
     )
 
     mock_extractor = AsyncMock()
-    mock_extractor.extract_location.return_value = ExtractedLocation(
-        place_name="武康大楼",
-        city_or_district="上海市徐汇区淮海中路1850号",
-        category="Sightseeing",
-        search_query="武康大楼 Shanghai",
-        summary="上海著名历史公寓建筑，超好拍。",
-        confidence=0.98
-    )
+    mock_extractor.extract_locations.return_value = [
+        ExtractedLocation(
+            place_name="武康大楼",
+            city_or_district="上海市徐汇区淮海中路1850号",
+            category="Sightseeing",
+            search_query="武康大楼 Shanghai",
+            summary="上海著名历史公寓建筑，超好拍。",
+            confidence=0.98
+        )
+    ]
 
     mock_geocoder = AsyncMock()
     mock_geocoder.search_place.return_value = GooglePlaceDetails(
@@ -50,8 +52,10 @@ async def test_pipeline_end_to_end():
         pinner=mock_pinner,
     )
 
-    item = await pipeline.process_url("https://www.xiaohongshu.com/explore/note789")
+    result = await pipeline.process_url("https://www.xiaohongshu.com/explore/note789")
 
+    assert len(result.items) == 1
+    item = result.items[0]
     assert item.location.place_name == "武康大楼"
     assert item.google_place.place_id == "wukang_123"
     assert item.pinned_status == "Success"

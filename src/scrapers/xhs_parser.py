@@ -1,6 +1,7 @@
 """
 Xiaohongshu Note HTML Parser and Data Extractor.
 Parses SSR state JSON or HTML meta elements to extract note title, description, tags, POI, and image URLs.
+Supports fallback using raw user share text.
 """
 
 import json
@@ -24,34 +25,48 @@ class XhsParser:
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         }
 
-    async def parse(self, raw_url: str) -> NoteData:
+    async def parse(self, raw_url: str, raw_share_text: Optional[str] = None) -> NoteData:
         """
         Main entry to parse Xiaohongshu note from URL.
         Resolves short URL first, then fetches and parses page content.
+        Uses raw_share_text as context fallback if available.
         """
         canonical_url = await resolve_xhs_url(raw_url)
         note_id = extract_note_id(canonical_url) or "unknown_id"
 
+        note_data = None
         try:
             async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=12.0) as client:
                 response = await client.get(canonical_url)
                 if response.status_code == 200:
                     note_data = self._extract_from_html(response.text, canonical_url, note_id)
-                    if note_data and (note_data.title or note_data.desc):
-                        return note_data
-        except Exception as e:
-            # Log exception internally or fallback
+        except Exception:
             pass
 
-        # Fallback if fetching HTML fails or anti-bot blocks HTTP request
-        return NoteData(
-            url=canonical_url,
-            note_id=note_id,
-            title="Xiaohongshu Note",
-            desc=f"Extracted note content for URL: {canonical_url}",
-            tags=[],
-            image_urls=[]
-        )
+        # If HTTP extraction failed or returned minimal data, construct note_data from raw_share_text
+        if not note_data or (not note_data.title and not note_data.desc):
+            title = ""
+            desc = raw_share_text or f"Xiaohongshu note link: {canonical_url}"
+            if raw_share_text:
+                # Clean URL out of share text to get cleanest title
+                clean_text = re.sub(r"https?://\S+", "", raw_share_text).strip()
+                title = clean_text[:60] if clean_text else "Xiaohongshu Note"
+
+            note_data = NoteData(
+                url=canonical_url,
+                note_id=note_id,
+                title=title or "Xiaohongshu Note",
+                desc=desc,
+                raw_share_text=raw_share_text,
+                tags=re.findall(r"#([^\s#]+)", desc),
+                image_urls=[]
+            )
+        else:
+            note_data.raw_share_text = raw_share_text
+            if raw_share_text and raw_share_text not in note_data.desc:
+                note_data.desc += f"\n\n[分享文本参考]: {raw_share_text}"
+
+        return note_data
 
     def _extract_from_html(self, html_content: str, url: str, note_id: str) -> NoteData:
         """Extract note data from HTML string."""

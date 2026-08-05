@@ -12,7 +12,7 @@ from discord.ext import commands
 from config import config
 from src.scrapers.url_utils import extract_xhs_urls
 from src.services.pipeline import ProcessPipeline
-from src.bot.formatters import build_place_embed, build_action_view
+from src.bot.formatters import build_result_embed, build_result_view
 
 
 class RednoteMapBot(commands.Bot):
@@ -38,6 +38,11 @@ class RednoteMapBot(commands.Bot):
         """Callback when Discord Bot logs in successfully."""
         print(f"✅ Discord Bot logged in as {self.user} (ID: {self.user.id})")
         print(f"📍 Active Pin Strategy: {config.PINNER_STRATEGY}")
+        if config.ALLOWED_CHANNEL_IDS:
+            print(f"🔒 Allowed Channel IDs: {config.ALLOWED_CHANNEL_IDS}")
+        else:
+            print("🌐 Allowed Channels: ALL channels")
+
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching,
@@ -56,14 +61,15 @@ def create_bot(pipeline: ProcessPipeline = None) -> RednoteMapBot:
         if message.author.bot:
             return
 
-        # Check channel restriction if ALLOWED_CHANNEL_IDS is set
-        if config.ALLOWED_CHANNEL_IDS and message.channel.id not in config.ALLOWED_CHANNEL_IDS:
-            await bot.process_commands(message)
-            return
-
         # Extract Xiaohongshu URLs from message
         urls = extract_xhs_urls(message.content)
         if not urls:
+            await bot.process_commands(message)
+            return
+
+        # Check channel restriction if ALLOWED_CHANNEL_IDS is set
+        if config.ALLOWED_CHANNEL_IDS and message.channel.id not in config.ALLOWED_CHANNEL_IDS:
+            print(f"⚠️ Ignored XHS link in channel {message.channel.id} (Not in ALLOWED_CHANNEL_IDS)")
             await bot.process_commands(message)
             return
 
@@ -72,9 +78,10 @@ def create_bot(pipeline: ProcessPipeline = None) -> RednoteMapBot:
             async with message.channel.typing():
                 status_msg = await message.reply(f"🔍 收到小红书链接，AI 正在分析笔记内容并搜索 Google 地图定位...", mention_author=False)
                 try:
-                    item = await bot.pipeline.process_url(url)
-                    embed = build_place_embed(item)
-                    view = build_action_view(item)
+                    # Pass full message text so LLM has rich context even if note webpage is anti-bot protected
+                    result = await bot.pipeline.process_url(url, raw_share_text=message.content)
+                    embed = build_result_embed(result)
+                    view = build_result_view(result)
                     await status_msg.edit(content=None, embed=embed, view=view)
                 except Exception as e:
                     await status_msg.edit(content=f"❌ 处理小红书链接失败: {str(e)}")
@@ -93,9 +100,9 @@ def create_bot(pipeline: ProcessPipeline = None) -> RednoteMapBot:
 
         await interaction.response.defer(thinking=True)
         try:
-            item = await bot.pipeline.process_url(urls[0])
-            embed = build_place_embed(item)
-            view = build_action_view(item)
+            result = await bot.pipeline.process_url(urls[0], raw_share_text=link)
+            embed = build_result_embed(result)
+            view = build_result_view(result)
             await interaction.followup.send(embed=embed, view=view)
         except Exception as e:
             await interaction.followup.send(f"❌ 处理失败: {str(e)}")
