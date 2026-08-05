@@ -7,9 +7,9 @@ from typing import List, Optional
 import httpx
 from config import config
 
-# Regex patterns for Xiaohongshu links
+# Regex patterns for Xiaohongshu links (supports .com, .cn, .net)
 XHS_URL_REGEX = re.compile(
-    r"https?://(?:www\.)?(?:xhslink\.com/[A-Za-z0-9/_-]+|xiaohongshu\.com/(?:explore|discovery/item)/[A-Za-z0-9_-]+)",
+    r"https?://(?:www\.)?(?:xhslink\.(?:com|cn|net)/[A-Za-z0-9/_-]+|(?:xiaohongshu|rednote)\.(?:com|cn)/(?:explore|discovery/item)/[A-Za-z0-9_-]+)",
     re.IGNORECASE,
 )
 
@@ -34,10 +34,10 @@ def extract_xhs_urls(text: str) -> List[str]:
 
 async def resolve_xhs_url(url: str) -> str:
     """
-    Follow HTTP redirects if the URL is a short link (xhslink.com).
+    Follow HTTP redirects if the URL is a short link (xhslink.com / xhslink.cn).
     Returns the resolved canonical Xiaohongshu URL.
     """
-    if "xhslink.com" not in url.lower():
+    if "xhslink" not in url.lower():
         return url
 
     headers = {"User-Agent": config.USER_AGENT}

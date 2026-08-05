@@ -24,7 +24,13 @@ def test_extract_xhs_urls():
     urls3 = extract_xhs_urls(text3)
     assert len(urls3) == 2
 
-    # Test 4: No URL in text
+    # Test 4: xhslink.cn short link format
+    text4 = "🇨🇦多伦多周边游 误入超美小镇 📍Trans-Canada Trail... http://xhslink.cn/o/8elIcUjRjBx 跳转【小红书】看看笔记详情~"
+    urls4 = extract_xhs_urls(text4)
+    assert len(urls4) == 1
+    assert urls4[0] == "http://xhslink.cn/o/8elIcUjRjBx"
+
+    # Test 5: No URL in text
     assert extract_xhs_urls("Just normal text without any links") == []
 
 
