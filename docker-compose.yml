@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  rednote-map-bot:
+    build: .
+    container_name: rednote_map_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./saved_places.kml:/app/saved_places.kml
+      - ./credentials.json:/app/credentials.json:ro
