@@ -12,7 +12,7 @@ from discord.ext import commands
 from config import config
 from src.scrapers.url_utils import extract_xhs_urls
 from src.services.pipeline import ProcessPipeline
-from src.bot.formatters import build_result_embed, build_result_view
+from src.bot.formatters import build_result_embeds, build_result_view
 
 
 class RednoteMapBot(commands.Bot):
@@ -80,9 +80,9 @@ def create_bot(pipeline: ProcessPipeline = None) -> RednoteMapBot:
                 try:
                     # Pass full message text so LLM has rich context even if note webpage is anti-bot protected
                     result = await bot.pipeline.process_url(url, raw_share_text=message.content)
-                    embed = build_result_embed(result)
+                    embeds = build_result_embeds(result)
                     view = build_result_view(result)
-                    await status_msg.edit(content=None, embed=embed, view=view)
+                    await status_msg.edit(content=None, embeds=embeds[:10], view=view)
                 except Exception as e:
                     await status_msg.edit(content=f"❌ 处理小红书链接失败: {str(e)}")
 
@@ -101,9 +101,9 @@ def create_bot(pipeline: ProcessPipeline = None) -> RednoteMapBot:
         await interaction.response.defer(thinking=True)
         try:
             result = await bot.pipeline.process_url(urls[0], raw_share_text=link)
-            embed = build_result_embed(result)
+            embeds = build_result_embeds(result)
             view = build_result_view(result)
-            await interaction.followup.send(embed=embed, view=view)
+            await interaction.followup.send(embeds=embeds[:10], view=view)
         except Exception as e:
             await interaction.followup.send(f"❌ 处理失败: {str(e)}")
 

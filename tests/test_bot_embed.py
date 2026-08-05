@@ -3,7 +3,7 @@ Unit tests for Discord embed generation formatting.
 """
 
 from src.models.place import NoteData, ExtractedLocation, GooglePlaceDetails, ProcessedMapItem, ProcessedResult
-from src.bot.formatters import build_place_embed, build_action_view, build_result_embed, build_result_view
+from src.bot.formatters import build_place_embed, build_action_view, build_result_embeds, build_result_view
 
 
 def test_build_place_embed():
@@ -46,26 +46,25 @@ def test_build_place_embed():
     assert len(view.children) == 2  # 2 Link Buttons (Google Maps & XHS)
 
 
-def test_build_multi_result_embed():
+def test_build_multi_result_embeds():
     note = NoteData(url="http://xhslink.cn/123", note_id="123", title="多伦多周边2个小镇")
     item1 = ProcessedMapItem(
         note=note,
         location=ExtractedLocation(place_name="Elora Town", category="Sightseeing", search_query="Elora", summary="Nice town"),
-        google_place=GooglePlaceDetails(place_id="e1", name="Elora", formatted_address="Elora ON", latitude=43.6, longitude=-80.4, google_maps_url="https://maps.google.com/e1")
+        google_place=GooglePlaceDetails(place_id="e1", name="Elora", formatted_address="Elora ON", latitude=43.6, longitude=-80.4, google_maps_url="https://www.google.com/maps/search/?api=1&query=Elora&query_place_id=e1")
     )
     item2 = ProcessedMapItem(
         note=note,
         location=ExtractedLocation(place_name="Port Hope", category="Sightseeing", search_query="Port Hope", summary="Historic town"),
-        google_place=GooglePlaceDetails(place_id="p1", name="Port Hope", formatted_address="Port Hope ON", latitude=43.9, longitude=-78.3, google_maps_url="https://maps.google.com/p1")
+        google_place=GooglePlaceDetails(place_id="p1", name="Port Hope", formatted_address="Port Hope ON", latitude=43.9, longitude=-78.3, google_maps_url="https://www.google.com/maps/search/?api=1&query=Port+Hope&query_place_id=p1")
     )
 
     result = ProcessedResult(note=note, items=[item1, item2])
-    embed = build_result_embed(result)
+    embeds = build_result_embeds(result)
 
-    assert "2 个打卡地点" in embed.title
-    assert len(embed.fields) == 2
-    assert "Elora Town" in embed.fields[0].name
-    assert "Port Hope" in embed.fields[1].name
+    assert len(embeds) == 2
+    assert "📍 [1/2] Elora Town" in embeds[0].title
+    assert "📍 [2/2] Port Hope" in embeds[1].title
 
     view = build_result_view(result)
     assert len(view.children) == 3  # 2 Google Maps buttons + 1 XHS button
